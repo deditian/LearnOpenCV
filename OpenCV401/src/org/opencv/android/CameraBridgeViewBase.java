@@ -11,14 +11,23 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.Rect;
+import android.hardware.Camera;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.WindowManager;
+import android.hardware.Camera.CameraInfo;
+
+import androidx.annotation.NonNull;
 
 /**
  * This is a basic class, implementing the interaction with Camera and OpenCV library.
@@ -55,6 +64,7 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
     public static final int CAMERA_ID_FRONT = 98;
     public static final int RGBA = 1;
     public static final int GRAY = 2;
+    WindowManager windowManager;
 
     public CameraBridgeViewBase(Context context, int cameraId) {
         super(context);
@@ -62,6 +72,7 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
         getHolder().addCallback(this);
         mMaxWidth = MAX_UNSPECIFIED;
         mMaxHeight = MAX_UNSPECIFIED;
+        windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
     }
 
     public CameraBridgeViewBase(Context context, AttributeSet attrs) {
@@ -79,6 +90,7 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
         getHolder().addCallback(this);
         mMaxWidth = MAX_UNSPECIFIED;
         mMaxHeight = MAX_UNSPECIFIED;
+        windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         styledAttrs.recycle();
     }
 
@@ -413,19 +425,54 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
                 if (BuildConfig.DEBUG)
                     Log.d(TAG, "mStretch value: " + mScale);
 
-                if (mScale != 0) {
-                    canvas.drawBitmap(mCacheBitmap, new Rect(0,0,mCacheBitmap.getWidth(), mCacheBitmap.getHeight()),
-                         new Rect((int)((canvas.getWidth() - mScale*mCacheBitmap.getWidth()) / 2),
-                         (int)((canvas.getHeight() - mScale*mCacheBitmap.getHeight()) / 2),
-                         (int)((canvas.getWidth() - mScale*mCacheBitmap.getWidth()) / 2 + mScale*mCacheBitmap.getWidth()),
-                         (int)((canvas.getHeight() - mScale*mCacheBitmap.getHeight()) / 2 + mScale*mCacheBitmap.getHeight())), null);
-                } else {
-                     canvas.drawBitmap(mCacheBitmap, new Rect(0,0,mCacheBitmap.getWidth(), mCacheBitmap.getHeight()),
-                         new Rect((canvas.getWidth() - mCacheBitmap.getWidth()) / 2,
-                         (canvas.getHeight() - mCacheBitmap.getHeight()) / 2,
-                         (canvas.getWidth() - mCacheBitmap.getWidth()) / 2 + mCacheBitmap.getWidth(),
-                         (canvas.getHeight() - mCacheBitmap.getHeight()) / 2 + mCacheBitmap.getHeight()), null);
+                /*START
+                 Change to support Landscape view
+                 add by deditian
+                 */
+                int rotation = windowManager.getDefaultDisplay().getRotation();
+                int degrees = 0;
+                // config degrees as you need
+                switch (rotation) {
+                    case Surface.ROTATION_0:
+                        degrees = 0;
+                        break;
+                    case Surface.ROTATION_90:
+                        degrees = 90;
+                        break;
+                    case Surface.ROTATION_180:
+                        degrees = 180;
+                        break;
+                    case Surface.ROTATION_270:
+                        degrees = 270;
+                        break;
                 }
+
+                CameraInfo cameraInfo = new CameraInfo();
+                Camera.getCameraInfo(0, cameraInfo);
+                int returnRotation = ((cameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT ? 180 : 360) +
+                        cameraInfo.orientation - degrees) % 360;
+                Log.i(TAG, "deliverAndDrawFrame: degrees="+degrees +" |returnRotation="+returnRotation + " |cameraInfo.orientation="+cameraInfo.orientation);
+                Matrix matrix = new Matrix();
+                matrix.postRotate(returnRotation);
+
+                Bitmap outputBitmap = Bitmap.createBitmap(mCacheBitmap, 0, 0, mCacheBitmap.getWidth(), mCacheBitmap.getHeight(), matrix, true);
+                  if (outputBitmap.getWidth() <= canvas.getWidth()) {
+                         mScale = getRatio(outputBitmap.getWidth(), outputBitmap.getHeight(), canvas.getWidth(), canvas.getHeight());
+                  } else {
+                         mScale = getRatio(canvas.getWidth(), canvas.getHeight(), outputBitmap.getWidth(), outputBitmap.getHeight());
+                  }
+
+
+                if (mScale != 0) {
+                    canvas.scale(mScale, mScale, 0, 0);
+                }
+                Log.d(TAG, "mStretch value: " + mScale);
+
+                canvas.drawBitmap(outputBitmap, 0, 0, null);
+                /* END
+                 Change to support Landscape view
+                 add by deditian
+                 */
 
                 if (mFpsMeter != null) {
                     mFpsMeter.measure();
@@ -433,6 +480,14 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
                 }
                 getHolder().unlockCanvasAndPost(canvas);
             }
+        }
+    }
+
+    private float getRatio(int widthSource, int heightSource, int widthTarget, int heightTarget) {
+        if (widthTarget <= heightTarget) {
+            return (float) heightTarget / (float) heightSource;
+        } else {
+            return (float) widthTarget / (float) widthSource;
         }
     }
 
@@ -454,7 +509,14 @@ public abstract class CameraBridgeViewBase extends SurfaceView implements Surfac
     // NOTE: On Android 4.1.x the function must be called before SurfaceTexture constructor!
     protected void AllocateCache()
     {
-        mCacheBitmap = Bitmap.createBitmap(mFrameWidth, mFrameHeight, Bitmap.Config.ARGB_8888);
+//        Matrix matrix = new Matrix();
+//        matrix.postRotate(180);
+//        Bitmap.createBitmap(mCacheBitmap, 0, 0, mFrameWidth, mFrameHeight, matrix, true);
+            mCacheBitmap = Bitmap.createBitmap(mFrameWidth, mFrameHeight, Bitmap.Config.ARGB_8888);
+//        Canvas c = new Canvas(mCacheBitmap);
+//        c.rotate(180, mFrameHeight/2, mFrameWidth/2);
+//        c.drawBitmap(mCacheBitmap, 0,0,null);
+
     }
 
     public interface ListItemAccessor {

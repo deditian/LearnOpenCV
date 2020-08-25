@@ -5,9 +5,10 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
 include_directories(${CMAKE_SOURCE_DIR}/src/main/jniIncludes)
 
-add_library(native-lib
-            SHARED
-            src/main/cpp/native-lib.cpp)
+add_library(native-lib SHARED
+            src/main/cpp/native-lib.cpp
+            src/main/cpp/CV_Main.cpp
+        src/main/cpp/Image_Reader.cpp)
 
 add_library(lib_opencv SHARED IMPORTED)
 
@@ -19,4 +20,7 @@ find_library(log-lib
 target_link_libraries(
         native-lib
         ${log-lib}
-        lib_opencv)
+        lib_opencv
+        camera2ndk
+        android
+        mediandk)
